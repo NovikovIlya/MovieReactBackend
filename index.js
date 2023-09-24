@@ -17,7 +17,7 @@ const start = async () => {
     await mongoose.connect(
       `mongodb+srv://novikovisergeevich:123@cluster0.osefsfh.mongodb.net/?retryWrites=true&w=majority`,
     );
-    app.listen(PORT, () => console.log(`server statred on port ${PORT}`));
+    app.listen(process.env.PORT || 5000, () => console.log(`server statred on port ${PORT}`));
   } catch (error) {
     console.log(e);
   }
