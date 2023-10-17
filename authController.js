@@ -118,5 +118,26 @@ class authController {
     //   res.status(400).json({ message: 'Ошибка при обновлении аватара' });
     // }
   }
+  async repassword(req, res) {
+    try {
+      const {oldUsername,newPassord} = req.body;
+      console.log(oldUsername,newPassord)
+      
+     
+      const currentUser = await User.findOne({username: oldUsername})
+      if(!currentUser){
+        return res.status(400).json({message:`Пользователь со старым именем ${oldUsername} не найден! `})
+      }
+
+      const hashPassword = bcrypt.hashSync(newPassord, 7);
+      currentUser.password = hashPassword;
+      await currentUser.save();
+      return res.json({ message: `Паспорт пользователя успешно изменено, ${hashPassword},${newPassord}` });
+
+    } catch (error) {
+      console.log(error);
+      res.status(400).json({ message: 'Error renaming user' });
+    }
+  }
 }
 module.exports = new authController();
