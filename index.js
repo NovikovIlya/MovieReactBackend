@@ -1,65 +1,151 @@
-const express = require('express')
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
 const mongoose = require('mongoose');
 const PORT = process.env.PORT || 5000;
-const cors = require('cors')
-// const fileUpload = require('express-fileupload');
+const cors = require('cors');
 const path = require('path');
-const multer  = require("multer");
+const multer = require('multer');
 const User = require('./models/User');
 
+const authRouter = require('./authRouter');
+const { request } = require('http');
+const { addUser, findUser, getRoomUsers, removeUser } = require('./userschat');
+
+const chatMessageSchema = new mongoose.Schema({
+  sender: String,
+  text: String,
+  socketId: String,
+  room: String,
+});
+const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+});
+
+io.on('connection', (socket) => {
+  socket.on('join', ({ name, room }) => {
+    socket.join(room);
+
+    const { user, isExist } = addUser({ name, room });
+
+    const userMessage = isExist ? `'${user.name}', here you go again` : `Joined '${name}'`;
+
+    socket.emit('message', {
+      data: { user: { name: 'Admin' }, message: userMessage },
+    });
+
+    socket.broadcast.to(user.room).emit('message', {
+      data: { user: { name: 'Admin' }, message: ` '${name}' has joined` },
+    });
+
+    io.to(user.room).emit('joinRoom', {
+      data: { users: getRoomUsers(user.room) },
+    });
+  });
+
+  socket.on('sendMessage', async ({ message, params }) => {
+    const user = findUser(params);
+    const chatMessage = new ChatMessage({
+      sender: params.name,
+      text: message,
+      socketId: socket.id,
+      room: params.room,
+    });
+    try {
+      await chatMessage.save();
+      if (user) {
+        io.to(user.room).emit('message', { data: { user, message } });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  socket.on('leftRoom', async ({ params }) => {
+    const user = removeUser(params);
+
+    if (user) {
+      const { room, name } = user;
+      io.to(user.room).emit('message', {
+        data: { user: { name: 'Admin' }, message: `${name} has left` },
+      });
+      io.to(user.room).emit('joinRoom', {
+        data: { users: getRoomUsers(room) },
+      });
+    }
+  });
+
+  socket.on('getChatHistory', (room) => {
+    if (room.length > 0) {
+      ChatMessage.find({ room: room })
+        .then((chatMessages) => {
+          console.log('rr', room);
+          socket.emit('chatHistory', { data: chatMessages });
+        })
+        .catch((err) => {
+          console.error(err);
+        });
+    }
+  });
+
+  io.on('disconnect', () => {
+    console.log('Disconnect');
+  });
+});
+
 app.use(
   cors({
-    origin: "*",
-  })
+    origin: '*',
+  }),
 );
-const authRouter = require('./authRouter');
-// app.use(fileUpload());
+
 app.use(express.json());
-app.use("/auth", authRouter);
-app.get('/', function(req, res) {
+app.use('/auth', authRouter);
+app.get('/', function (req, res) {
   res.sendFile(path.join(__dirname, '/index.html'));
 });
 
 const storageConfig = multer.diskStorage({
-  destination: (req, file, cb) =>{
-      cb(null, "uploads");
+  destination: (req, file, cb) => {
+    cb(null, 'uploads');
   },
-  filename: (req, file, cb) =>{
-      cb(null, file.originalname);
-  }
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  },
 });
 
 app.use(express.static(__dirname));
-// app.use(multer({storage:storageConfig}).single("filedata"));
-const upload = multer({storage:storageConfig})
-app.post("/upload",upload.single('filedata'), async function (req, res, next) {
-   
-    let filedata = req.file;
-    console.log(filedata);
-    try {
-      console.log('------------',req)
-      const oldUsername = req.body.oldUsername
-      // const  {filename}  = req.file;
-      const currentUser = await User.findOne({username: oldUsername})
-      if (!currentUser) {
-        return res.status(404).json({ message: 'Пользователь не найден' });
-      }
-      currentUser.avatar = `/${filedata.path}`;
-      await currentUser.save();
-      res.json(currentUser.avatar)
-    } catch (error) {
-      console.log(error);
-      res.status(400).json({ message: 'Ошибка при обновлении аватара' });
-    }
 
+const upload = multer({ storage: storageConfig });
+app.post('/upload', upload.single('filedata'), async function (req, res, next) {
+  let filedata = req.file;
+  console.log(filedata);
+  try {
+    console.log('------------', req);
+    const oldUsername = req.body.oldUsername;
+    const currentUser = await User.findOne({ username: oldUsername });
+    if (!currentUser) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+    currentUser.avatar = `/${filedata.path}`;
+    await currentUser.save();
+    res.json(currentUser.avatar);
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ message: 'Ошибка при обновлении аватара' });
+  }
 });
 const start = async () => {
   try {
     await mongoose.connect(
       `mongodb+srv://novikovisergeevich:123@cluster0.osefsfh.mongodb.net/?retryWrites=true&w=majority`,
     );
-    app.listen(process.env.PORT || 5000, () => console.log(`server statred on port ${PORT}`));
+    server.listen(process.env.PORT || 5000, () => console.log(`server statred on port ${PORT}`));
   } catch (error) {
     console.log(e);
   }
