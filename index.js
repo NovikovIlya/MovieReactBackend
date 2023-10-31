@@ -18,6 +18,8 @@ const chatMessageSchema = new mongoose.Schema({
   text: String,
   socketId: String,
   room: String,
+  date: String,
+  time:String,
 });
 const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);
 
@@ -30,7 +32,6 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
   socket.on('join', ({ name, room }) => {
     socket.join(room);
-
     const { user, isExist } = addUser({ name, room });
 
     const userMessage = isExist ? `'${user.name}', here you go again` : `Joined '${name}'`;
@@ -55,11 +56,13 @@ io.on('connection', (socket) => {
       text: message,
       socketId: socket.id,
       room: params.room,
+      date: (new Date().toISOString().slice(0,10).split('-').reverse().join('.')),
+      time: new Date().toLocaleTimeString(),
     });
     try {
       await chatMessage.save();
       if (user) {
-        io.to(user.room).emit('message', { data: { user, message } });
+        io.to(user.room).emit('message', { data: { user, message ,chatMessage} });
       }
     } catch (err) {
       console.error(err);
@@ -118,7 +121,35 @@ const storageConfig = multer.diskStorage({
     cb(null, file.originalname);
   },
 });
+app.post('/chatall',async function(req,res){
+  const { username } = req.body
+  const curUser =  await User.findOne({ username });
+  const kek = ChatMessage.find({ room: 'main' })
+  .then((chatMessages) => {
+    const timeC = chatMessages.map((item)=>{
+      const now = (new Date().toISOString().slice(0,10).split('-').reverse().join('.'))
+      const nowTime = new Date().toLocaleTimeString()
+      if(item.date === now && item.sender !== username && new Date(curUser.time) < new Date(nowTime)){
+          return item
+        }
+    })
+    
+    res.json(timeC);
+  })
+  .catch((err) => {
+    console.error(err);
+  });
+  // try {
+  //    const chat = ChatMessage.find({room: 'main'})
+  //    console.log('chat',chat)
+  //    res.json(chat);
+     
 
+  // } catch (error) {
+  //   console.log(error);
+  //   res.status(400).json({ message: 'Error all chat' });
+  // }
+})
 app.use(express.static(__dirname));
 
 const upload = multer({ storage: storageConfig });
